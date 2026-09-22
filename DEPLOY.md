@@ -85,9 +85,7 @@ dashboard, useful if you want to see/adjust each setting yourself.
 
 7. Click **Create Web Service** (or **Create Resources**, depending on
    Render's current wording). It starts building immediately.
-8. Watch the **Logs** tab. A first build takes several minutes — it's
-   installing PyTorch and EasyOCR, which are large packages, then
-   prefetching EasyOCR's models. You'll see
+8. Watch the **Logs** tab. You'll see
    `Uvicorn running on http://0.0.0.0:$PORT` once it's live.
 
 ### 2B. Manual dashboard deploy (alternative)
@@ -102,11 +100,15 @@ If you'd rather not use the Blueprint file:
      part of the default URL).
    - **Root Directory**: `backend`
    - **Runtime**: `Python 3`
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-   - **Instance Type**: at least 1 GB RAM. EasyOCR's PyTorch dependency
-     needs the headroom — the smallest free tier will likely be too small
-     or too slow to run OCR in reasonable time.
+   - **Build Command**:
+     `pip install -r requirements.txt && pip install --no-deps -r requirements-ocr.txt`
+     (the second install is deliberate — see `requirements-ocr.txt`)
+   - **Start Command**:
+     `uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --limit-concurrency 8`
+   - **Instance Type**: the free tier (512 MB) is enough. A scan peaks at
+     roughly 330 MB measured end to end on a 12-megapixel photo. On a
+     larger instance, raise `OCR_MAX_LONG_SIDE` for better fine-print
+     accuracy.
 5. Before clicking create, scroll to **Environment Variables** and add
    each one from the table in step 2A above (same values, same sources).
 6. Click **Create Web Service**. Render builds and deploys automatically.
@@ -133,11 +135,11 @@ If you'd rather not use the Blueprint file:
    domain and follow Render's DNS instructions; it issues a free TLS
    certificate automatically.
 6. **Cold starts**: on Render's free tier, a service spins down after
-   inactivity. The next request wakes it up but will be slow — both from
-   Render's own cold start and from EasyOCR loading its detection/
-   recognition models (~100 MB, downloaded once and cached on that
-   instance's disk). Upgrade to a paid "always on" plan to avoid this for
-   real users.
+   inactivity. The next request wakes it up but will be slow — that is
+   Render's own cold start; the OCR models ship in the wheel and load in
+   well under a second. A request that arrives during a cold start can time
+   out in the browser even though the service comes up fine. Upgrade to a
+   paid "always on" plan to avoid this for real users.
 
 ## 3. Frontend on Vercel
 
@@ -210,8 +212,10 @@ happens automatically when you save environment variables there).
 - [ ] `GET /health` (and `HEAD /health`, which is what most uptime monitors
       send) returns `200` from the public Render URL.
 - [ ] Signed in on the deployed frontend and ran one real scan end-to-end
-      (upload → OCR → verdicts → PDF report download) to warm up EasyOCR's
-      models and confirm Supabase Storage/Postgres connectivity from Render.
+      (upload → OCR → verdicts → PDF report download) to confirm Supabase
+      Storage/Postgres connectivity from Render.
+- [ ] Watched the service's **Metrics → Memory** graph during that scan. It
+      should peak a little over 300 MB and settle back near 180 MB.
 - [ ] Confirmed Groq calls succeed in production if `GROQ_API_KEY` is set,
       with no `messages[0].content must be a string` errors in the logs.
 - [ ] Rotated or restricted the Supabase `service_role` key if it was ever
@@ -258,13 +262,20 @@ Almost always a CORS mismatch — the frontend's actual origin isn't in
 `CORS_ORIGINS` on Render. Check the exact scheme and host (no trailing
 slash) and redeploy the backend after changing it.
 
-**First scan after deploy (or after a cold start) is very slow**
-The Blueprint's build step (`python -m app.prefetch_models`) downloads
-EasyOCR's ~100 MB of models into `backend/.easyocr` so they ship with the
-build, and the app loads them into memory in a background thread at startup.
-If you deployed manually rather than from `render.yaml`, add that command to
-your Build Command — otherwise the download happens inside the first scan
-request, which is slow enough to time it out.
+**Scans return `502 Bad Gateway`, and the browser reports a CORS error**
+The CORS message is a symptom, not the cause: the worker died mid-request,
+so Render's edge returned a 502 that carries no `Access-Control-Allow-Origin`
+header. Check **Logs** for `Out of memory` / `SIGKILL` around the timestamp.
+On a 512 MB instance the usual causes are a very large upload (raise or keep
+`MAX_UPLOAD_BYTES`), an `OCR_MAX_LONG_SIDE` raised past what the instance can
+hold, or several scans running at once — which is what the
+`--limit-concurrency` flag in the Start Command is there to bound. Verify
+`CORS_ORIGINS` separately by hitting an endpoint that works, e.g.
+`curl -i https://<service>.onrender.com/health`.
+
+**First scan after a cold start is very slow**
+That is Render's free-tier spin-down, not OCR: the models ship inside the
+wheel and the app loads them in a background thread at startup.
 
 **Vercel build succeeds but the deployed app calls `localhost:8000`**
 `VITE_API_BASE_URL` wasn't set before the build ran, or was added after the

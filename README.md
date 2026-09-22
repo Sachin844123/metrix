@@ -92,7 +92,7 @@ reports to support the officer's own judgment, not replace it.
 |---|---|
 | Frontend | React 18, Vite, Tailwind CSS 4, React Router, Recharts, Axios |
 | Backend | Python, FastAPI, SQLAlchemy |
-| OCR | EasyOCR (pure-pip, no external binary dependency), OpenCV preprocessing, RapidFuzz for tolerant matching |
+| OCR | RapidOCR — PP-OCRv4 models on ONNX Runtime (pure-pip, models bundled in the wheel), OpenCV preprocessing, RapidFuzz for tolerant matching |
 | AI assist | Groq (vision-language model) |
 | PDF generation | ReportLab |
 | Database | Supabase Postgres (SQLite fallback for local dev) |
@@ -126,11 +126,11 @@ reports to support the officer's own judgment, not replace it.
    frontend. Roles live in each Supabase user's `app_metadata`, writable
    only with the service-role key.
 2. **Preprocessing + OCR** — `image_preprocessing.py` corrects EXIF
-   rotation, upscales undersized photos, denoises, and contrast-enhances
-   the image; EasyOCR then extracts every line of text with its bounding
-   box and pixel height. Bounding boxes are scaled back to the original
-   photo's pixel space so a physical mm-per-pixel calibration still gives
-   correct font-size measurements after upscaling.
+   rotation, scales the photo into a bounded working size, denoises, and
+   contrast-enhances it in grayscale; RapidOCR then extracts every line of
+   text with its bounding box and pixel height. Bounding boxes are scaled
+   back to the original photo's pixel space so a physical mm-per-pixel
+   calibration still gives correct font-size measurements after rescaling.
 3. **Rule engine** — a deterministic matcher (`rule_engine.py`) checks the
    extracted text against the mandatory declarations table
    (`rules_data.py`): first with regex and a sliding-window match for
@@ -189,6 +189,7 @@ venv\Scripts\activate          # Windows
 # source venv/bin/activate     # macOS/Linux
 
 pip install -r requirements.txt
+pip install --no-deps -r requirements-ocr.txt
 copy .env.example .env         # Windows: copy, macOS/Linux: cp
 ```
 
@@ -205,8 +206,11 @@ in Supabase Auth (credentials in `.env.example`:
 `admin@legalmetrology.gov.in` / `Admin@123` — change these before any real
 deployment). Interactive API docs are served at `http://localhost:8000/docs`.
 
-> The first OCR call downloads EasyOCR's detection/recognition models
-> (roughly 100 MB) — a one-time download, cached locally afterward.
+> The second install is deliberate, not a typo: the OCR package declares a
+> dependency on the desktop OpenCV build, which needs `libGL` and would
+> shadow the headless build on a server. See `requirements-ocr.txt`. The OCR
+> models themselves ship inside the wheel, so nothing is downloaded at
+> runtime.
 
 ### Frontend Setup
 
@@ -239,7 +243,8 @@ All backend configuration lives in `backend/.env` (copy from
 | `GROQ_API_KEY` | No | — | Enables the AI-assist layer. Free at [console.groq.com/keys](https://console.groq.com/keys). The app works fully without it. |
 | `GROQ_MODEL` | No | `openai/gpt-oss-120b` | Text model used to identify the product from OCR'd front-of-pack text and to write the report summary. |
 | `GROQ_VISION_MODEL` | No | *(blank)* | Optional **vision-capable** model that reviews the label photo directly. Blank turns that extra pass off. |
-| `EASYOCR_MODEL_DIR` | No | `backend/.easyocr` | Where EasyOCR's models are cached. Pre-populated by `python -m app.prefetch_models`. |
+| `OCR_MAX_LONG_SIDE` | No | `960` | Longest edge any image is scaled to before OCR. The main lever on peak memory — raise it for better fine-print accuracy on an instance with more than 512 MB. |
+| `MAX_UPLOAD_BYTES` | No | `10485760` | Largest accepted photo upload; anything bigger gets a `413`. |
 
 `GROQ_VISION_MODEL` is deliberately separate from `GROQ_MODEL` and blank by
 default: `openai/gpt-oss-120b` is a **text-only** model, and sending it an
@@ -349,7 +354,7 @@ SIH/
 │   │   │   └── dashboard.py         Aggregate compliance statistics
 │   │   └── services/
 │   │       ├── image_preprocessing.py      EXIF fix, upscaling, denoise, contrast enhancement
-│   │       ├── ocr_service.py               EasyOCR text + bounding-box extraction
+│   │       ├── ocr_service.py               RapidOCR text + bounding-box extraction
 │   │       ├── rules_data.py               Mandatory declarations & font-size table
 │   │       ├── rule_engine.py               Regex + fuzzy compliance verdicts
 │   │       ├── groq_service.py              Optional Groq vision AI-assist layer

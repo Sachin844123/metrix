@@ -23,13 +23,19 @@ class Settings:
     # on; everything works without it via OCR + the text model.
     groq_vision_model: str = os.getenv("GROQ_VISION_MODEL", "").strip()
 
-    # Where EasyOCR keeps its ~100 MB detection/recognition models. Kept
-    # inside the project directory (rather than the default ~/.EasyOCR) so
-    # the build step can pre-download them and the running instance finds
-    # them already there instead of downloading on the first scan.
-    easyocr_model_dir: Path = Path(
-        os.getenv("EASYOCR_MODEL_DIR", str(BASE_DIR / ".easyocr"))
-    )
+    # Upper bound on a single uploaded photo. Two of these are read fully
+    # into memory per scan, on an instance whose whole budget may be 512 MB,
+    # so an unbounded upload is a straightforward way to OOM the worker.
+    # Phone photos are comfortably under this; it only rejects the absurd.
+    max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+
+    # Longest edge, in pixels, that any image is scaled to before OCR. This
+    # is the single biggest lever on peak memory: the text detector's
+    # activations scale with its input, and measured end to end a scan peaks
+    # at roughly 410 MB at 960 px but 500 MB+ at 1200 px, against the 512 MB
+    # of a free-tier instance. Raise it on a larger instance - more pixels
+    # means fine print (ingredients, care addresses) reads more reliably.
+    ocr_max_long_side: int = int(os.getenv("OCR_MAX_LONG_SIDE", "960"))
 
     cors_origins: list[str] = [
         o.strip()
@@ -65,4 +71,3 @@ class Settings:
 settings = Settings()
 settings.upload_dir.mkdir(exist_ok=True)
 settings.report_dir.mkdir(exist_ok=True)
-settings.easyocr_model_dir.mkdir(parents=True, exist_ok=True)

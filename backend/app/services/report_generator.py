@@ -15,6 +15,11 @@ from reportlab.platypus import (
 )
 
 from .. import models
+from . import image_preprocessing
+
+# The label thumbnail is rendered at 70 mm wide; ~1200 px on the long edge is
+# already more than a 300 dpi print of that size can show.
+REPORT_IMAGE_LONG_SIDE = 1200
 
 
 def build_report(scan: models.Scan, image_bytes: bytes | None) -> bytes:
@@ -72,7 +77,12 @@ def build_report(scan: models.Scan, image_bytes: bytes | None) -> bytes:
 
     if image_bytes:
         try:
-            img = RLImage(io.BytesIO(image_bytes), width=70 * mm, height=70 * mm, kind="proportional")
+            # Embed a bounded thumbnail, not the original upload: the label
+            # only occupies 70 mm on the page, and decoding (and then
+            # embedding) a full 12-megapixel photo would cost more memory
+            # than the rest of the report combined, for no visible gain.
+            thumbnail = image_preprocessing.make_thumbnail(image_bytes, REPORT_IMAGE_LONG_SIDE)
+            img = RLImage(io.BytesIO(thumbnail), width=70 * mm, height=70 * mm, kind="proportional")
             story.append(img)
             story.append(Spacer(1, 8 * mm))
         except Exception:

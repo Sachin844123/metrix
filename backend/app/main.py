@@ -5,11 +5,10 @@ import time
 from sqlalchemy.exc import OperationalError
 
 if sys.platform == "win32":
-    # EasyOCR's first-run model download prints a progress bar using Unicode
-    # block characters; Windows' default console codepage (cp1252) can't
-    # encode them, which crashes the OCR call. Force UTF-8 on the standard
-    # streams so this - and any other library that prints Unicode - works
-    # regardless of the terminal's active codepage.
+    # Several of these libraries print Unicode (progress bars, model names)
+    # that Windows' default console codepage (cp1252) can't encode, which
+    # turns a log line into a crash. Force UTF-8 on the standard streams so
+    # that works regardless of the terminal's active codepage.
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
@@ -95,9 +94,9 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Could not seed the default admin user in Supabase Auth")
 
-    # Loading EasyOCR's models takes ~10s; do it off the startup path so the
-    # health check passes immediately, but before the first scan arrives.
-    threading.Thread(target=ocr_service.warm_up, name="easyocr-warmup", daemon=True).start()
+    # Loading the OCR models takes a few seconds; do it off the startup path
+    # so the health check passes immediately, but before the first scan.
+    threading.Thread(target=ocr_service.warm_up, name="ocr-warmup", daemon=True).start()
 
     yield
 

@@ -2,12 +2,14 @@ services:
   - type: web
     name: lm-compliance-api
     runtime: python
-    plan: starter
+    # Runs inside the 512 MB of Render's free instance type. See
+    # requirements-ocr.txt for why that install is a separate --no-deps step.
+    plan: free
     rootDir: backend
-    # Prefetch EasyOCR's ~100 MB models at build time so the first scan
-    # after a deploy doesn't stall downloading them inside the request.
-    buildCommand: pip install -r requirements.txt && python -m app.prefetch_models
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -r requirements.txt && pip install --no-deps -r requirements-ocr.txt
+    # One worker, and a concurrency cap so a burst of uploads queues instead
+    # of peaking all at once and getting the worker OOM-killed.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --limit-concurrency 8
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL

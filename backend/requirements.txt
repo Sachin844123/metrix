@@ -8,9 +8,17 @@ python-dotenv==1.0.1
 pillow==10.4.0
 reportlab==4.2.5
 numpy==1.26.4
-easyocr==1.7.2
 opencv-python-headless==4.11.0.86
 rapidfuzz==3.14.5
 groq==1.7.0
 psycopg2-binary==2.9.10
 httpx==0.28.1
+
+# Runtime dependencies of rapidocr-onnxruntime, pinned here because that
+# package is installed separately with --no-deps - see requirements-ocr.txt.
+onnxruntime==1.20.1
+pyclipper==1.3.0.post6
+shapely==2.0.6
+PyYAML==6.0.2
+six==1.16.0
+tqdm==4.67.1

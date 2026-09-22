@@ -1,0 +1,16 @@
+# Install with --no-deps, AFTER requirements.txt:
+#
+#     pip install -r requirements.txt
+#     pip install --no-deps -r requirements-ocr.txt
+#
+# rapidocr-onnxruntime declares a dependency on `opencv-python` - the desktop
+# build, which needs libGL.so.1 present and, installed alongside, overwrites
+# the `opencv-python-headless` build that requirements.txt pins. On a server
+# image that turns into `ImportError: libGL.so.1` at startup. Only the cv2
+# API is actually used, which both builds provide identically, so the
+# dependency is skipped and its real requirements are pinned in
+# requirements.txt instead.
+#
+# The PP-OCRv4 detection/recognition models ship inside this wheel (~15 MB),
+# so nothing is downloaded at runtime.
+rapidocr-onnxruntime==1.4.4

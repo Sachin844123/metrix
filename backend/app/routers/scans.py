@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Q
 from sqlalchemy.orm import Session, joinedload
 
 from .. import models, schemas
+from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user, require_role
 from ..services import (
@@ -30,6 +31,30 @@ MIN_RECOMMENDED_SHORT_SIDE = 900
 
 def _guess_mime(filename: str) -> str:
     return mimetypes.guess_type(filename)[0] or "image/jpeg"
+
+
+def _read_upload(upload: UploadFile, field: str) -> bytes:
+    """
+    Read an uploaded photo, refusing anything over the configured limit.
+
+    Two photos are held in memory for the length of a scan, alongside the
+    OCR models, so an unbounded upload is the easiest way to push a small
+    instance into the OOM killer - which the browser sees as a 502 with no
+    CORS headers, rather than as the error it actually is. Rejecting it up
+    front turns that into an answerable 413.
+    """
+    data = upload.file.read(settings.max_upload_bytes + 1)
+    if len(data) > settings.max_upload_bytes:
+        limit_mb = settings.max_upload_bytes / (1024 * 1024)
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"{field} is larger than the {limit_mb:.0f} MB limit. Re-take or "
+                "export the photo at a smaller size - label text stays readable "
+                "well below this."
+            ),
+        )
+    return data
 
 
 def _identify_product(front_bytes: bytes, front_mime: str) -> dict:
@@ -57,7 +82,9 @@ def _identify_product(front_bytes: bytes, front_mime: str) -> dict:
         return identified
 
     try:
-        front_lines = ocr_service.extract_lines(front_bytes)
+        front_lines = ocr_service.extract_lines(
+            front_bytes, max_long_side=ocr_service.FRONT_OF_PACK_LONG_SIDE
+        )
     except Exception:
         logger.exception("OCR of the front-of-pack photo failed")
         return identified
@@ -86,9 +113,9 @@ def create_scan(
     db: Session = Depends(get_db),
     current_user: schemas.UserOut = Depends(get_current_user),
 ):
-    image_bytes = image.file.read()
+    image_bytes = _read_upload(image, "The declarations-panel photo")
     mime = _guess_mime(image.filename or "image.jpg")
-    front_bytes = front_image.file.read()
+    front_bytes = _read_upload(front_image, "The front-of-pack photo")
     front_mime = _guess_mime(front_image.filename or "image.jpg")
 
     # Only run auto-identification for the fields the inspector didn't

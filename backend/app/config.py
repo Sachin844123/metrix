@@ -15,7 +15,21 @@ class Settings:
 
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
     groq_model: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
-    groq_vision_model: str = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.6-27b")
+    # Blank by default, and deliberately separate from GROQ_MODEL: the
+    # default text model is text-only, and sending it an image rejects the
+    # whole request with "messages[0].content must be a string". Set this
+    # only to a genuinely vision-capable model
+    # (https://console.groq.com/docs/vision) to turn the photo-review assist
+    # on; everything works without it via OCR + the text model.
+    groq_vision_model: str = os.getenv("GROQ_VISION_MODEL", "").strip()
+
+    # Where EasyOCR keeps its ~100 MB detection/recognition models. Kept
+    # inside the project directory (rather than the default ~/.EasyOCR) so
+    # the build step can pre-download them and the running instance finds
+    # them already there instead of downloading on the first scan.
+    easyocr_model_dir: Path = Path(
+        os.getenv("EASYOCR_MODEL_DIR", str(BASE_DIR / ".easyocr"))
+    )
 
     cors_origins: list[str] = [
         o.strip()
@@ -51,3 +65,4 @@ class Settings:
 settings = Settings()
 settings.upload_dir.mkdir(exist_ok=True)
 settings.report_dir.mkdir(exist_ok=True)
+settings.easyocr_model_dir.mkdir(parents=True, exist_ok=True)

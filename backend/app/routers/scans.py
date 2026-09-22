@@ -1,4 +1,5 @@
 import json
+import logging
 import mimetypes
 import uuid
 from pathlib import Path
@@ -19,6 +20,8 @@ from ..services import (
     groq_service,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/scans", tags=["scans"])
 
 BLUR_WARNING_THRESHOLD = 60.0
@@ -27,6 +30,46 @@ MIN_RECOMMENDED_SHORT_SIDE = 900
 
 def _guess_mime(filename: str) -> str:
     return mimetypes.guess_type(filename)[0] or "image/jpeg"
+
+
+def _identify_product(front_bytes: bytes, front_mime: str) -> dict:
+    """
+    Auto-identify the product from its front-of-pack photo so nothing has to
+    be typed in manually, best available method first:
+
+      1. A Groq vision model reading the photo directly - only if
+         GROQ_VISION_MODEL names a vision-capable model.
+      2. Groq's text model reading the OCR'd front-of-pack text. This is the
+         normal path, since the default GROQ_MODEL (openai/gpt-oss-120b) is
+         text-only, and it still recovers a clean name/brand/category out of
+         noisy OCR output.
+      3. A pure-OCR heuristic - the most prominent text on a package front
+         is almost always the product/brand name - so the app still works
+         with no Groq key at all.
+
+    Returns {"product_name": ..., "brand_name": ..., "category": ...} with
+    empty strings for whatever couldn't be determined, or {} if nothing
+    could be identified. Never raises: an unidentified product is a
+    per-field blank the inspector can fill in, not a failed scan.
+    """
+    identified = groq_service.identify_product(front_bytes, front_mime)
+    if identified.get("product_name"):
+        return identified
+
+    try:
+        front_lines = ocr_service.extract_lines(front_bytes)
+    except Exception:
+        logger.exception("OCR of the front-of-pack photo failed")
+        return identified
+
+    from_text = groq_service.identify_product_from_text(ocr_service.full_text(front_lines))
+    if from_text.get("product_name"):
+        return from_text
+
+    guessed = ocr_service.guess_product_name(front_lines)
+    if guessed:
+        return {**(from_text or identified), "product_name": guessed}
+    return from_text or identified
 
 
 @router.post("/", response_model=schemas.ScanDetailOut)
@@ -48,25 +91,14 @@ def create_scan(
     front_bytes = front_image.file.read()
     front_mime = _guess_mime(front_image.filename or "image.jpg")
 
-    # Auto-identify the product from its front-of-pack photo so nothing has
-    # to be typed in manually. Groq's vision model does this reliably; if
-    # it's not configured, fall back to a same-request OCR heuristic (the
-    # most prominent text on a package front is almost always the product/
-    # brand name) so the app still works with zero external setup.
-    try:
-        identified = groq_service.identify_product(front_bytes, front_mime) if groq_service.is_enabled() else {}
-    except Exception:
-        identified = {}
-    final_product_name = product_name or identified.get("product_name")
-    final_brand_name = brand_name or identified.get("brand_name")
-    final_category = category or identified.get("category")
-    if not final_product_name:
-        try:
-            front_lines = ocr_service.extract_lines(front_bytes)
-            final_product_name = ocr_service.guess_product_name(front_lines)
-        except Exception:
-            final_product_name = None
-        final_product_name = final_product_name or "Unidentified product"
+    # Only run auto-identification for the fields the inspector didn't
+    # already override - it costs an OCR pass and an API call.
+    identified = (
+        {} if (product_name and brand_name and category) else _identify_product(front_bytes, front_mime)
+    )
+    final_product_name = product_name or identified.get("product_name") or "Unidentified product"
+    final_brand_name = brand_name or identified.get("brand_name") or None
+    final_category = category or identified.get("category") or None
 
     ext = Path(image.filename or "image.jpg").suffix or ".jpg"
     key = f"{uuid.uuid4().hex}{ext}"

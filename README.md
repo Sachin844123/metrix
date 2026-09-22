@@ -237,11 +237,18 @@ All backend configuration lives in `backend/.env` (copy from
 | `DEFAULT_ADMIN_NAME` | No | `Chief Inspector` | Seeded admin account display name. |
 | `CORS_ORIGINS` | No | `http://localhost:5173` | Comma-separated list of allowed frontend origins. |
 | `GROQ_API_KEY` | No | — | Enables the AI-assist layer. Free at [console.groq.com/keys](https://console.groq.com/keys). The app works fully without it. |
-| `GROQ_MODEL` | No | `openai/gpt-oss-120b` | Text model used for the report summary fallback. |
-| `GROQ_VISION_MODEL` | No | `qwen/qwen3.6-27b` | Vision-capable model used to review the label photo directly. |
+| `GROQ_MODEL` | No | `openai/gpt-oss-120b` | Text model used to identify the product from OCR'd front-of-pack text and to write the report summary. |
+| `GROQ_VISION_MODEL` | No | *(blank)* | Optional **vision-capable** model that reviews the label photo directly. Blank turns that extra pass off. |
+| `EASYOCR_MODEL_DIR` | No | `backend/.easyocr` | Where EasyOCR's models are cached. Pre-populated by `python -m app.prefetch_models`. |
 
-Groq's model catalog changes over time — if a model id 404s, run
-`client.models.list()` against your key to see what's currently available.
+`GROQ_VISION_MODEL` is deliberately separate from `GROQ_MODEL` and blank by
+default: `openai/gpt-oss-120b` is a **text-only** model, and sending it an
+image rejects the request with
+`400 … messages[0].content must be a string`. Set it only to a model listed
+under [Groq's vision docs](https://console.groq.com/docs/vision); with it
+blank, product identification runs off OCR text + `GROQ_MODEL` instead, and
+nothing else changes. If a model id 404s, run `client.models.list()` against
+your key to see what's currently available.
 
 `frontend/.env` sets a single variable: `VITE_API_BASE_URL`.
 

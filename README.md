@@ -189,7 +189,7 @@ venv\Scripts\activate          # Windows
 # source venv/bin/activate     # macOS/Linux
 
 pip install -r requirements.txt
-pip install --no-deps -r requirements-ocr.txt
+pip install --no-deps -r requirements-ocr.txt   # deliberate, see below
 copy .env.example .env         # Windows: copy, macOS/Linux: cp
 ```
 

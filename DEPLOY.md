@@ -101,7 +101,7 @@ If you'd rather not use the Blueprint file:
    - **Root Directory**: `backend`
    - **Runtime**: `Python 3`
    - **Build Command**:
-     `pip install -r requirements.txt && pip install --no-deps -r requirements-ocr.txt`
+     `pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir --no-deps -r requirements-ocr.txt`
      (the second install is deliberate — see `requirements-ocr.txt`)
    - **Start Command**:
      `uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --limit-concurrency 8`
@@ -240,6 +240,16 @@ Connection String).
 Supabase's pooler recycles idle connections. This backend already sets
 `pool_pre_ping=True` in `app/database.py` to handle this transparently — if
 you still see it, confirm Render is running the latest deployed commit.
+
+**Build fails with `THESE PACKAGES DO NOT MATCH THE HASHES FROM THE
+REQUIREMENTS FILE`, naming an `unknown package`**
+Nothing in this repo pins hashes — this is pip failing to verify a file it
+downloaded against the hash the package index published for it. Render keeps
+`~/.cache/pip` between builds, so one truncated download stays poisoned and
+fails every later build too; retrying the deploy on its own changes nothing.
+The Build Command passes `--no-cache-dir` for exactly this reason. If you
+deployed before that was added, or set the command by hand, either add the
+flag or use **Manual Deploy → Clear build cache & deploy** once.
 
 **Groq calls fail with `400 … messages[0].content must be a string`**
 `GROQ_VISION_MODEL` is set to a text-only model (e.g. `openai/gpt-oss-120b`),

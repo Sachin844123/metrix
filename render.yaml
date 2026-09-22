@@ -6,7 +6,12 @@ services:
     # requirements-ocr.txt for why that install is a separate --no-deps step.
     plan: free
     rootDir: backend
-    buildCommand: pip install -r requirements.txt && pip install --no-deps -r requirements-ocr.txt
+    # --no-cache-dir: Render persists ~/.cache/pip between builds, and a
+    # truncated entry there fails verification on every subsequent build
+    # ("THESE PACKAGES DO NOT MATCH THE HASHES...", for an "unknown
+    # package") until the cache is cleared. Downloading fresh avoids that
+    # and keeps the build's disk use down.
+    buildCommand: pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir --no-deps -r requirements-ocr.txt
     # One worker, and a concurrency cap so a burst of uploads queues instead
     # of peaking all at once and getting the worker OOM-killed.
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --limit-concurrency 8

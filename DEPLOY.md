@@ -92,6 +92,14 @@ dashboard, useful if you want to see/adjust each setting yourself.
 
 If you'd rather not use the Blueprint file:
 
+> **A service created this way never reads `render.yaml`.** Every setting
+> below lives in the Render dashboard, and editing `render.yaml` in the repo
+> will not change any of them — a build can therefore run new application
+> code with a stale Build or Start Command, which fails in confusing ways
+> (see the troubleshooting note on `Could not open requirements file`). Treat
+> `render.yaml` as a reference for what the values should be, and keep the
+> dashboard in step with it by hand.
+
 1. Push this repository to GitHub if you haven't already.
 2. In the Render dashboard, click **New +** → **Web Service**.
 3. Connect your GitHub account and select this repository.
@@ -112,6 +120,23 @@ If you'd rather not use the Blueprint file:
 5. Before clicking create, scroll to **Environment Variables** and add
    each one from the table in step 2A above (same values, same sources).
 6. Click **Create Web Service**. Render builds and deploys automatically.
+
+#### Changing these later on an existing service
+
+Nothing above is fixed at creation time, but each setting lives in a
+different place:
+
+| Setting | Where |
+|---|---|
+| Build Command, Start Command, deployed branch | **Settings → Build & Deploy** |
+| Instance Type | **Settings → Instance Type** |
+| Environment variables | **Environment** |
+
+Saving an environment variable restarts the service on its own. Changing the
+Build or Start Command does **not** rebuild by itself — use **Manual Deploy
+→ Deploy latest commit** afterwards. Check the deployed branch matches the
+one carrying the code you expect: a service pointed at a branch that hasn't
+been merged into yet will happily keep building old code.
 
 ### 2C. After it's deployed (both paths)
 
@@ -229,6 +254,12 @@ changed an environment variable rather than code, trigger a redeploy
 manually from that platform's dashboard (Vercel requires this for env var
 changes to take effect; Render restarts automatically).
 
+If your Render service was created from the dashboard rather than the
+Blueprint, changes to `render.yaml` are not part of "code" for this purpose:
+they do nothing until you copy them into the dashboard yourself. A commit
+that changes the Build Command, Start Command or instance type in
+`render.yaml` needs the matching dashboard edit in the same sitting.
+
 ## Troubleshooting
 
 **`psycopg2.OperationalError: could not translate host name "db.<ref>.supabase.co"`**
@@ -240,6 +271,15 @@ Connection String).
 Supabase's pooler recycles idle connections. This backend already sets
 `pool_pre_ping=True` in `app/database.py` to handle this transparently — if
 you still see it, confirm Render is running the latest deployed commit.
+
+**Build fails with `ERROR: Could not open requirements file: [Errno 2] No
+such file or directory: 'requirements-ocr.txt'`**
+The Build Command is newer than the code being built. `requirements-ocr.txt`
+arrived in the same commit that removed EasyOCR, so a build whose log shows
+`easyocr`, `torch` and a pile of `nvidia-*` packages installing is building a
+commit from before that change. Check **Settings → Build & Deploy** for which
+branch the service deploys, confirm the code you expect is actually merged
+into it, then **Manual Deploy → Deploy latest commit**.
 
 **Build fails with `THESE PACKAGES DO NOT MATCH THE HASHES FROM THE
 REQUIREMENTS FILE`, naming an `unknown package`**

@@ -1,3 +1,8 @@
+# Render Blueprint. This file is read ONLY by a service created via
+# New + -> Blueprint. A Web Service created from the dashboard ignores it
+# entirely - for those, these values have to be set in the dashboard by
+# hand (Settings -> Build & Deploy, Settings -> Instance Type,
+# Environment). See DEPLOY.md section 2B.
 services:
   - type: web
     name: lm-compliance-api

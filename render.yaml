@@ -4,7 +4,9 @@ services:
     runtime: python
     plan: starter
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
+    # Prefetch EasyOCR's ~100 MB models at build time so the first scan
+    # after a deploy doesn't stall downloading them inside the request.
+    buildCommand: pip install -r requirements.txt && python -m app.prefetch_models
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
@@ -30,5 +32,10 @@ services:
         sync: false
       - key: GROQ_MODEL
         value: openai/gpt-oss-120b
+      # Leave blank unless you have a vision-capable model. GROQ_MODEL above
+      # is text-only: pointing this at it rejects every scan with
+      # "400 ... messages[0].content must be a string". Blank simply turns
+      # the optional photo-review assist off - OCR plus GROQ_MODEL still
+      # identify the product and write the report summary.
       - key: GROQ_VISION_MODEL
-        value: qwen/qwen3.6-27b
+        value: ""

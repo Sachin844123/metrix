@@ -3,10 +3,14 @@ OCR extraction service built on EasyOCR (pure-pip, no external binary
 install required - unlike Tesseract which needs a separate system package).
 The reader is loaded lazily and cached because model loading is slow.
 """
+import logging
 import threading
 from typing import TypedDict
 
+from ..config import settings
 from . import image_preprocessing
+
+logger = logging.getLogger(__name__)
 
 _reader = None
 _reader_lock = threading.Lock()
@@ -26,8 +30,37 @@ def _get_reader():
             if _reader is None:
                 import easyocr
 
-                _reader = easyocr.Reader(["en"], gpu=False)
+                _reader = easyocr.Reader(
+                    ["en"],
+                    gpu=False,
+                    # EasyOCR otherwise prints a "Using CPU" banner and a
+                    # Unicode progress bar for every model download, which
+                    # floods a hosted platform's log stream with thousands
+                    # of near-identical lines.
+                    verbose=False,
+                    # Pre-populated by `python -m app.prefetch_models` at
+                    # build time, so a deployed instance loads the models
+                    # from disk instead of downloading ~100 MB during the
+                    # first user's scan request.
+                    model_storage_directory=str(settings.easyocr_model_dir),
+                )
     return _reader
+
+
+def warm_up() -> bool:
+    """
+    Load (downloading if needed) the OCR models. Called at build time to bake
+    them into the image, and again in a background thread at startup so the
+    first real scan doesn't pay the load cost. Returns True on success -
+    never raises, because a failed warm-up should only make the first scan
+    slow, not stop the app from serving.
+    """
+    try:
+        _get_reader()
+        return True
+    except Exception:
+        logger.exception("EasyOCR warm-up failed; models will load on the first scan instead")
+        return False
 
 
 def extract_lines(image_bytes: bytes) -> list[OcrLine]:

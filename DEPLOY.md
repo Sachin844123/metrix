@@ -81,11 +81,13 @@ dashboard, useful if you want to see/adjust each setting yourself.
    | `DEFAULT_ADMIN_PASSWORD` | A strong password — this account is created automatically on first boot |
    | `CORS_ORIGINS` | Leave a placeholder like `http://localhost:5173` for now — you'll update this in [step 4](#4-wire-the-two-together) once your Vercel URL exists |
    | `GROQ_API_KEY` | Optional — leave blank to skip the AI-assist layer, or paste a key from [console.groq.com/keys](https://console.groq.com/keys) |
+   | `GROQ_VISION_MODEL` | Leave **blank** unless you have a vision-capable model — see the troubleshooting note below |
 
 7. Click **Create Web Service** (or **Create Resources**, depending on
    Render's current wording). It starts building immediately.
 8. Watch the **Logs** tab. A first build takes several minutes — it's
-   installing PyTorch and EasyOCR, which are large packages. You'll see
+   installing PyTorch and EasyOCR, which are large packages, then
+   prefetching EasyOCR's models. You'll see
    `Uvicorn running on http://0.0.0.0:$PORT` once it's live.
 
 ### 2B. Manual dashboard deploy (alternative)
@@ -205,11 +207,13 @@ happens automatically when you save environment variables there).
 - [ ] Changed `DEFAULT_ADMIN_PASSWORD` from the sample value before first boot.
 - [ ] `CORS_ORIGINS` on Render lists the exact Vercel/Netlify origin,
       including `https://` and no trailing slash.
-- [ ] `GET /health` returns `200` from the public Render URL.
+- [ ] `GET /health` (and `HEAD /health`, which is what most uptime monitors
+      send) returns `200` from the public Render URL.
 - [ ] Signed in on the deployed frontend and ran one real scan end-to-end
       (upload → OCR → verdicts → PDF report download) to warm up EasyOCR's
       models and confirm Supabase Storage/Postgres connectivity from Render.
-- [ ] Confirmed Groq calls succeed in production if `GROQ_API_KEY` is set.
+- [ ] Confirmed Groq calls succeed in production if `GROQ_API_KEY` is set,
+      with no `messages[0].content must be a string` errors in the logs.
 - [ ] Rotated or restricted the Supabase `service_role` key if it was ever
       exposed anywhere other than Render's environment variables.
 
@@ -233,6 +237,16 @@ Supabase's pooler recycles idle connections. This backend already sets
 `pool_pre_ping=True` in `app/database.py` to handle this transparently — if
 you still see it, confirm Render is running the latest deployed commit.
 
+**Groq calls fail with `400 … messages[0].content must be a string`**
+`GROQ_VISION_MODEL` is set to a text-only model (e.g. `openai/gpt-oss-120b`),
+which rejects the image attached to a vision request. Clear
+`GROQ_VISION_MODEL` in Render's environment variables — blank simply skips
+the optional photo-review pass; the product is still identified from OCR'd
+front-of-pack text and the summary still comes from `GROQ_MODEL`. Only set it
+to a model listed under [Groq's vision docs](https://console.groq.com/docs/vision).
+The backend also disables the vision pass by itself after the first such
+response, so scans keep working until you get to the dashboard.
+
 **Groq calls return `404 model_not_found`**
 Groq's model catalog changes over time. Run
 `Groq(api_key=...).models.list()` against your key and update
@@ -245,9 +259,12 @@ Almost always a CORS mismatch — the frontend's actual origin isn't in
 slash) and redeploy the backend after changing it.
 
 **First scan after deploy (or after a cold start) is very slow**
-Expected — EasyOCR downloads and loads its detection/recognition models on
-first use (~100 MB). This only happens once per instance's lifetime; run
-one scan right after deploying to absorb this cost before real users hit it.
+The Blueprint's build step (`python -m app.prefetch_models`) downloads
+EasyOCR's ~100 MB of models into `backend/.easyocr` so they ship with the
+build, and the app loads them into memory in a background thread at startup.
+If you deployed manually rather than from `render.yaml`, add that command to
+your Build Command — otherwise the download happens inside the first scan
+request, which is slow enough to time it out.
 
 **Vercel build succeeds but the deployed app calls `localhost:8000`**
 `VITE_API_BASE_URL` wasn't set before the build ran, or was added after the

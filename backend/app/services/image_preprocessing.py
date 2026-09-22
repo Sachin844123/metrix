@@ -17,6 +17,14 @@ from PIL import Image, ImageOps
 MIN_SHORT_SIDE = 1400
 MAX_SHORT_SIDE = 2600  # avoid pointlessly blowing up an already-huge photo
 
+# Groq accepts a far larger image by URL than inlined as a base64 data URL,
+# and a just-uploaded photo has no public URL - so anything sent to the
+# vision model has to fit the (much smaller) base64 budget. Base64 inflates
+# bytes by 4/3, so a ~3 MB JPEG stays comfortably inside Groq's 4 MB limit
+# while still being far more detail than a label needs.
+MAX_VISION_BYTES = 3 * 1024 * 1024
+MAX_VISION_LONG_SIDE = 1600
+
 
 def _pil_to_cv2(img: Image.Image) -> np.ndarray:
     return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
@@ -111,3 +119,31 @@ def short_side_px(image_bytes: bytes) -> int:
     img = Image.open(io.BytesIO(image_bytes))
     img = ImageOps.exif_transpose(img)
     return min(img.size)
+
+
+def encode_for_vision(image_bytes: bytes) -> tuple[bytes, str]:
+    """
+    Returns (JPEG bytes, mime) for a photo about to be base64-inlined into a
+    Groq vision request: EXIF-corrected, downscaled to MAX_VISION_LONG_SIDE
+    and recompressed until it fits MAX_VISION_BYTES. A raw 12-megapixel
+    phone photo is several times Groq's base64 limit and would come back as
+    a 400; label text is still perfectly legible at this size.
+    """
+    img = Image.open(io.BytesIO(image_bytes))
+    img = ImageOps.exif_transpose(img).convert("RGB")
+    if max(img.size) > MAX_VISION_LONG_SIDE:
+        img.thumbnail((MAX_VISION_LONG_SIDE, MAX_VISION_LONG_SIDE), Image.LANCZOS)
+
+    for quality in (85, 70, 55, 40):
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        data = buf.getvalue()
+        if len(data) <= MAX_VISION_BYTES:
+            return data, "image/jpeg"
+
+    # Still too big (very large, very noisy photo) - halve the dimensions
+    # and take whatever that gives; the alternative is a guaranteed 400.
+    img.thumbnail((img.width // 2, img.height // 2), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=55, optimize=True)
+    return buf.getvalue(), "image/jpeg"

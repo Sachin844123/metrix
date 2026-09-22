@@ -161,9 +161,11 @@ def evaluate_scan(
     # an independent second look, in case OCR noise or split lines caused a
     # false negative. This can only move a result from "missing" to "found"
     # for human review - it never overrides a match the rule engine already
-    # made or downgrades a compliant verdict.
+    # made or downgrades a compliant verdict. Skipped unless a vision-capable
+    # GROQ_VISION_MODEL is configured - the default GROQ_MODEL is text-only
+    # and rejects an image outright.
     vision_result = {}
-    if groq_service.is_enabled() and image_bytes:
+    if groq_service.vision_enabled() and image_bytes:
         vision_result = groq_service.analyze_image(image_bytes, image_mime, product_name, results)
 
     for label, snippet in vision_result.get("recovered", {}).items():

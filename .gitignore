@@ -6,6 +6,7 @@ backend/reports/*
 backend/.env
 backend/*.db
 backend/__pycache__/
+backend/.easyocr/
 backend/**/__pycache__/
 
 frontend/node_modules/
